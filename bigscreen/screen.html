@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>工业无线物联网传感系统</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        padding: 0;
+        margin: 0;
+      }
+      body {
+        background-image: url("./screen-bg.png");
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+        height: 100vh;
+        width: 100vw;
+        padding-top: 2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .top-form {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-evenly;
+        color: #fff;
+        flex-shrink: 0;
+        margin-bottom: 0.5rem;
+      }
+      .input-label {
+        width: 140px;
+        display: block;
+      }
+      input {
+        background-color: transparent;
+        color: #fff;
+        border-color: #fff;
+      }
+      .chart-content {
+        flex: 1;
+        border: 1px solid gray;
+        width: 90%;
+        border-radius: 2rem;
+        margin-bottom: 2rem;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-evenly;
+        align-items: center;
+      }
+      .chart-item {
+        width: 43%;
+        height: 43%;
+        background-color: rgba(16, 24, 37, 0.3);
+        color: #fff;
+      }
+      .warning-title {
+        margin: 1rem 0;
+      }
+      .warning-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+      }
+      .normal::after {
+        content: "正常";
+        margin-left: 2rem;
+        color: #fff;
+      }
+      .white::after {
+        content: "否";
+      }
+      .red::after {
+        content: "是";
+      }
+      .danger::after {
+        content: "超出";
+        margin-left: 2rem;
+        color: #ad2102;
+      }
+      .white {
+        color: #fff;
+      }
+      .red {
+        color: #ad2102;
+      }
+    </style>
+    <script src="./echarts.js"></script>
+  </head>
+  <body>
+    <div class="chart-content">
+      <div class="chart-item" id="sensors1"></div>
+      <div class="chart-item" id="sensors2"></div>
+
+      <div class="chart-item" style="padding: 3rem">
+        <h2 class="warning-title">报警：</h2>
+        <div class="warning-item">
+          <span class="input-label">温度上限（℃）：</span>
+          <div><input type="number" id="temperature1" value="50" /></div>
+        </div>
+        <div class="warning-item">
+          <span class="input-label">湿度上限（%）：</span>
+          <div><input type="number" id="humidity1" value="22.2" /></div>
+        </div>
+        <div class="warning-item">
+          <span class="input-label">光强上限（Lux）：</span>
+          <div><input type="number" id="rayWeight1" value="700" /></div>
+        </div>
+        <div class="warning-item"><span class="input-label">是否火灾：</span><span id="fire1"></span></div>
+      </div>
+      <div class="chart-item" style="padding: 3rem">
+        <h2 class="warning-title">报警：</h2>
+        <div class="warning-item">
+          <span class="input-label">温度上限（℃）：</span>
+          <div><input type="number" id="temperature2" value="40" /></div>
+        </div>
+        <div class="warning-item">
+          <span class="input-label">湿度上限（%）：</span>
+          <div><input type="number" id="humidity2" value="45.5" /></div>
+        </div>
+        <div class="warning-item">
+          <span class="input-label">光强上限（Lux）：</span>
+          <div><input type="number" id="rayWeight2" value="600" /></div>
+        </div>
+        <div class="warning-item"><span class="input-label">是否火灾：</span><span id="fire2"></span></div>
+      </div>
+    </div>
+    <script>
+      // 请求地址
+      const URL = "http://localhost:6688/";
+
+      // 时间间隔（ms）
+      const TIME_GAP = 3000;
+      
+      // 创建图表容器dom
+      var myChart1 = echarts.init(document.getElementById("sensors1"));
+      var myChart2 = echarts.init(document.getElementById("sensors2"));
+
+      // 创建输入框dom
+      var rayWeight1 = document.getElementById("rayWeight1");
+      var rayWeight2 = document.getElementById("rayWeight2");
+
+      var temperature1 = document.getElementById("temperature1");
+      var temperature2 = document.getElementById("temperature2");
+
+      var humidity1 = document.getElementById("humidity1");
+      var humidity2 = document.getElementById("humidity2");
+
+      // 创建火灾信息dom
+      var fire1 = document.getElementById("fire1");
+      var fire2 = document.getElementById("fire2");
+
+      window.addEventListener("resize", function () {
+        myChart1.resize();
+        myChart2.resize();
+      });
+
+      // 判断是否为有用的对象
+      function hasUsefulKeyAndValue(obj) {
+        for (let key in obj) {
+          if (obj.hasOwnProperty(key)) {
+            // 判断值是否有效，比如非空字符串、非零数字等
+            if (obj[key] !== null && obj[key] !== undefined && obj[key] !== "") {
+              return true; // 存在有用的key和对应的value
+            }
+          }
+        }
+        return false; // 不存在有用的key和对应的value
+      }
+
+      
+
+      // 根据数据生成对应图表配置
+      const generateOption = (title, xData, y1Data, y2Data, y3Data) => {
+        return {
+          backgroundColor: "#394056",
+          title: {
+            text: title,
+            textStyle: {
+              fontWeight: "normal",
+              fontSize: 16,
+              color: "#F1F1F3",
+            },
+            left: "6%",
+          },
+          tooltip: {
+            trigger: "axis",
+            axisPointer: {
+              lineStyle: {
+                color: "#57617B",
+              },
+            },
+          },
+          legend: {
+            icon: "rect",
+            itemWidth: 14,
+            itemHeight: 5,
+            itemGap: 13,
+            data: ["光强", "温度", "湿度"],
+            right: "4%",
+            textStyle: {
+              fontSize: 12,
+              color: "#F1F1F3",
+            },
+          },
+          grid: {
+            left: "3%",
+            right: "4%",
+            bottom: "3%",
+            containLabel: true,
+          },
+          xAxis: [
+            {
+              type: "category",
+              boundaryGap: true,
+              axisLine: {
+                lineStyle: {
+                  color: "#57617B",
+                },
+              },
+              axisLabel: {
+                interval: 0,
+              },
+              data: xData,
+            },
+          ],
+          yAxis: [
+            {
+              type: "value",
+              name: "光强",
+              boundaryGap: true,
+              axisTick: {
+                show: false,
+              },
+              axisLine: {
+                show: false,
+              },
+              axisLabel: {
+                margin: 10,
+                textStyle: {
+                  fontSize: 14,
+                },
+              },
+              splitLine: {
+                show: false,
+                lineStyle: {
+                  color: "#57617B",
+                },
+              },
+            },
+            {
+              type: "value",
+              boundaryGap: true,
+              axisTick: {
+                show: false,
+              },
+              axisLine: {
+                show: false,
+                lineStyle: {
+                  color: "#57617B",
+                },
+              },
+              axisLabel: {
+                margin: 10,
+                textStyle: {
+                  fontSize: 14,
+                },
+              },
+              splitLine: {
+                show: false,
+                lineStyle: {
+                  color: "#57617B",
+                },
+              },
+            },
+          ],
+          series: [
+            {
+              name: "光强",
+              type: "line",
+              smooth: true,
+              symbol: "circle",
+              symbolSize: 5,
+              showSymbol: false,
+              lineStyle: {
+                normal: {
+                  width: 1,
+                },
+              },
+              areaStyle: {
+                normal: {
+                  color: new echarts.graphic.LinearGradient(
+                    0,
+                    0,
+                    0,
+                    1,
+                    [
+                      {
+                        offset: 0,
+                        color: "rgba(137, 189, 27, 0.3)",
+                      },
+                      {
+                        offset: 0.8,
+                        color: "rgba(137, 189, 27, 0)",
+                      },
+                    ],
+                    false
+                  ),
+                  shadowColor: "rgba(0, 0, 0, 0.1)",
+                  shadowBlur: 10,
+                },
+              },
+              itemStyle: {
+                normal: {
+                  color: "rgb(137,189,27)",
+                  borderColor: "rgba(137,189,2,0.27)",
+                  borderWidth: 12,
+                },
+              },
+              data: y1Data,
+              yAxisIndex: 0, // 指定使用第一个 Y 轴
+            },
+            {
+              name: "温度",
+              type: "line",
+              smooth: true,
+              symbol: "circle",
+              symbolSize: 5,
+              showSymbol: false,
+              lineStyle: {
+                normal: {
+                  width: 1,
+                },
+              },
+              areaStyle: {
+                normal: {
+                  color: new echarts.graphic.LinearGradient(
+                    0,
+                    0,
+                    0,
+                    1,
+                    [
+                      {
+                        offset: 0,
+                        color: "rgba(0, 136, 212, 0.3)",
+                      },
+                      {
+                        offset: 0.8,
+                        color: "rgba(0, 136, 212, 0)",
+                      },
+                    ],
+                    false
+                  ),
+                  shadowColor: "rgba(0, 0, 0, 0.1)",
+                  shadowBlur: 10,
+                },
+              },
+              itemStyle: {
+                normal: {
+                  color: "rgb(0,136,212)",
+                  borderColor: "rgba(0,136,212,0.2)",
+                  borderWidth: 12,
+                },
+              },
+              data: y2Data,
+              yAxisIndex: 1, // 指定使用第二个 Y 轴
+            },
+            {
+              name: "湿度",
+              type: "line",
+              smooth: true,
+              symbol: "circle",
+              symbolSize: 5,
+              showSymbol: false,
+              lineStyle: {
+                normal: {
+                  width: 1,
+                },
+              },
+              areaStyle: {
+                normal: {
+                  color: new echarts.graphic.LinearGradient(
+                    0,
+                    0,
+                    0,
+                    1,
+                    [
+                      {
+                        offset: 0,
+                        color: "rgba(219, 50, 51, 0.3)",
+                      },
+                      {
+                        offset: 0.8,
+                        color: "rgba(219, 50, 51, 0)",
+                      },
+                    ],
+                    false
+                  ),
+                  shadowColor: "rgba(0, 0, 0, 0.1)",
+                  shadowBlur: 10,
+                },
+              },
+              itemStyle: {
+                normal: {
+                  color: "rgb(219,50,51)",
+                  borderColor: "rgba(219,50,51,0.2)",
+                  borderWidth: 12,
+                },
+              },
+              data: y3Data,
+              yAxisIndex: 1, // 指定使用第二个 Y 轴
+            },
+          ],
+        };
+      };
+
+      // 获取数据
+      const getData = async () => {
+        try {
+          // 构建传感器1的x轴data
+          let sensors1XData = [];
+          // 构建传感器1的y轴光强data
+          let sensors1YData1 = [];
+          // 构建传感器1的y轴温度data
+          let sensors1YData2 = [];
+          // 构建传感器1的y轴湿度data
+          let sensors1YData3 = [];
+          // 构建传感器2的x轴data
+          let sensors2XData = [];
+          // 构建传感器2的y轴光强data
+          let sensors2YData1 = [];
+          // 构建传感器2的y轴温度data
+          let sensors2YData2 = [];
+          // 构建传感器2的y轴湿度data
+          let sensors2YData3 = [];
+          let response = await fetch(URL);
+          if (!response.ok) {
+            throw new Error("Network response was not ok");
+          }
+          let data = await response.json();
+          console.log("data", data);
+          if (data.sensors1 && hasUsefulKeyAndValue(data.sensors1)) {
+            sensors1XData = Object.keys(data.sensors1);
+            sensors1YData1 = Object.values(data.sensors1).map((item) => item[0]);
+            sensors1YData2 = Object.values(data.sensors1).map((item) => item[1]);
+            sensors1YData3 = Object.values(data.sensors1).map((item) => item[2]);
+
+            // 判断输入框后面的文字内容
+            const maxRay = Math.max(...sensors1YData1);
+            const maxTem = Math.max(...sensors1YData2);
+            const maxShi = Math.max(...sensors1YData3);
+
+            rayWeight1Parent = rayWeight1.parentNode;
+            temperature1Parent = temperature1.parentNode;
+            humidity1Parent = humidity1.parentNode;
+
+            let rayClass = "normal",
+              temClass = "normal",
+              humClass = "normal";
+
+            if ((rayWeight1.value || +rayWeight1.value === 0) && maxRay > +rayWeight1.value) {
+              rayClass = "danger";
+            }
+            if ((temperature1.value || +temperature1.value === 0) && maxTem > temperature1.value) {
+              temClass = "danger";
+            }
+            if ((humidity1.value || +humidity1.value === 0) && maxShi > humidity1.value) {
+              humClass = "danger";
+            }
+            // 添加类名
+            rayWeight1Parent.className = rayClass;
+            temperature1Parent.className = temClass;
+            humidity1Parent.className = humClass;
+          }
+          // 绘制1图表
+          myChart1.setOption(generateOption("传感器1", sensors1XData, sensors1YData1, sensors1YData2, sensors1YData3));
+
+          if (data.sensors1 && hasUsefulKeyAndValue(data.sensors2)) {
+            sensors2XData = Object.keys(data.sensors2);
+            sensors2YData1 = Object.values(data.sensors2).map((item) => item[0]);
+            sensors2YData2 = Object.values(data.sensors2).map((item) => item[1]);
+            sensors2YData3 = Object.values(data.sensors2).map((item) => item[2]);
+
+            // 判断输入框后面的文字内容
+            const maxRay = Math.max(...sensors2YData1);
+            const maxTem = Math.max(...sensors2YData2);
+            const maxShi = Math.max(...sensors2YData3);
+
+            rayWeight2Parent = rayWeight2.parentNode;
+            temperature2Parent = temperature2.parentNode;
+            humidity2Parent = humidity2.parentNode;
+
+            let rayClass = "normal",
+              temClass = "normal",
+              humClass = "normal";
+
+            if ((rayWeight2.value || +rayWeight2.value === 0) && maxRay > +rayWeight2.value) {
+              rayClass = "danger";
+            }
+            if ((temperature2.value || +temperature2.value === 0) && maxTem > temperature2.value) {
+              temClass = "danger";
+            }
+            if ((humidity2.value || +humidity2.value === 0) && maxShi > humidity2.value) {
+              humClass = "danger";
+            }
+            // 添加类名
+            rayWeight2Parent.className = rayClass;
+            temperature2Parent.className = temClass;
+            humidity2Parent.className = humClass;
+          }
+          // 绘制2图表
+          myChart2.setOption(generateOption("传感器2", sensors2XData, sensors2YData1, sensors2YData2, sensors2YData3));
+          // 火灾
+          let fire1Class = "white",
+            fire2Class = "white";
+
+          if (data.fire1) {
+            fire1Class = "red";
+          }
+          if (data.fire2) {
+            fire2Class = "red";
+          }
+          fire1.className = fire1Class;
+          fire2.className = fire2Class;
+        } catch (error) {
+          console.error("Fetch error:", error);
+        }
+      };
+
+      // 页面加载时马上请求一次接口
+      getData();
+
+      // 开始轮询接口
+      setInterval(() => {
+        getData();
+      }, TIME_GAP);
+    </script>
+  </body>
+</html>
